@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title %}Tracking Dashboard{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1>Tracking Dashboard</h1>
+        <p class="lead">Monitor flagged entities and their performance trends</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Items Tracked</h5>
+                        <h2 id="totalTracked">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-eye fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Improving</h5>
+                        <h2 id="improving">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-arrow-up fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-danger text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Worsening</h5>
+                        <h2 id="worsening">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-arrow-down fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Tracked Items</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped" id="trackingTable">
+                        <thead>
+                            <tr>
+                                <th>Entity</th>
+                                <th>Driver</th>
+                                <th>Current Value</th>
+                                <th>Baseline Value</th>
+                                <th>Change</th>
+                                <th>Status</th>
+                                <th>Date Added</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Sample data for prototype -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadTrackingData();
+});
+
+function loadTrackingData() {
+    fetch('/api/tracking')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                console.error('Error loading tracking data:', data.error);
+                // Fall back to empty data
+                updateTrackingTable([]);
+                updateSummaryCards([]);
+            } else {
+                // Transform API data to match the expected format
+                const transformedData = data.map(item => ({
+                    id: item.id,
+                    entity: item.entity_name,
+                    driver: item.driver.replace('_', ' ').toUpperCase(),
+                    current_value: Math.random() * 10 + 80, // Placeholder - would calculate from real data
+                    baseline_value: item.baseline_value || Math.random() * 10 + 75,
+                    change: (Math.random() - 0.5) * 10, // Placeholder calculation
+                    status: Math.random() > 0.5 ? 'Improving' : 'Worsening', // Placeholder
+                    date_added: item.date_added
+                }));
+                
+                updateTrackingTable(transformedData);
+                updateSummaryCards(transformedData);
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching tracking data:', error);
+            // Fall back to empty data
+            updateTrackingTable([]);
+            updateSummaryCards([]);
+        });
+}
+
+function updateTrackingTable(data) {
+    const tbody = document.querySelector('#trackingTable tbody');
+    tbody.innerHTML = '';
+    
+    data.forEach(item => {
+        const tr = document.createElement('tr');
+        const statusColor = item.status === 'Improving' ? 'text-success' : 
+                           item.status === 'Worsening' ? 'text-danger' : 'text-warning';
+        const changeColor = item.change >= 0 ? 'text-success' : 'text-danger';
+        
+        tr.innerHTML = `
+            <td>${item.entity}</td>
+            <td>${item.driver}</td>
+            <td>${item.current_value.toFixed(1)}</td>
+            <td>${item.baseline_value.toFixed(1)}</td>
+            <td class="${changeColor}">
+                ${item.change >= 0 ? '+' : ''}${item.change.toFixed(1)}
+            </td>
+            <td class="${statusColor}">
+                <i class="fas ${item.status === 'Improving' ? 'fa-arrow-up' : 'fa-arrow-down'}"></i>
+                ${item.status}
+            </td>
+            <td>${item.date_added}</td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary me-1" onclick="viewDetails('${item.entity}')">
+                    View
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="removeTracking('${item.entity}', ${item.id})">
+                    Remove
+                </button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function updateSummaryCards(data) {
+    document.getElementById('totalTracked').textContent = data.length;
+    
+    const improving = data.filter(item => item.status === 'Improving').length;
+    const worsening = data.filter(item => item.status === 'Worsening').length;
+    
+    document.getElementById('improving').textContent = improving;
+    document.getElementById('worsening').textContent = worsening;
+}
+
+function viewDetails(entityName) {
+    alert(`Viewing detailed analytics for: ${entityName}`);
+}
+
+function removeTracking(entityName, trackingId) {
+    if (confirm(`Remove ${entityName} from tracking?`)) {
+        fetch(`/api/tracking/${trackingId}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(`Error: ${data.error}`);
+            } else {
+                alert(`Removed ${entityName} from tracking list.`);
+                loadTrackingData(); // Refresh the table
+            }
+        })
+        .catch(error => {
+            console.error('Error removing tracking:', error);
+            alert(`Error removing from tracking: ${error.message}`);
+        });
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,435 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1>Net Rate Variance Analysis</h1>
+        <p class="lead">Understanding the drivers of net revenue per visit changes</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-2">
+        <label for="analysisView" class="form-label">View</label>
+        <select class="form-control" id="analysisView" onchange="updateWaterfall()">
+            <option value="MTD">MTD</option>
+            <option value="QTD">QTD</option>
+            <option value="YTD">YTD</option>
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label for="currentMonth" class="form-label">Current Month</label>
+        <select class="form-control" id="currentMonth" onchange="updateWaterfall()">
+            <option value="1">January</option>
+            <option value="2">February</option>
+            <option value="3">March</option>
+            <option value="4">April</option>
+            <option value="5">May</option>
+            <option value="6">June</option>
+            <option value="7">July</option>
+            <option value="8">August</option>
+            <option value="9">September</option>
+            <option value="10">October</option>
+            <option value="11" selected>November</option>
+            <option value="12">December</option>
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label for="currentYear" class="form-label">Year</label>
+        <select class="form-control" id="currentYear" onchange="updateWaterfall()">
+            <option value="2024">2024</option>
+            <option value="2025" selected>2025</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label for="regionFilter" class="form-label">Region Filter</label>
+        <select class="form-control" id="regionFilter" onchange="updateWaterfall()">
+            <option value="">All Regions</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <div class="row">
+            <div class="col-6">
+                <label class="form-label">Current Period</label>
+                <div class="form-control-plaintext small" id="currentPeriodDisplay">Nov 2025</div>
+            </div>
+            <div class="col-6">
+                <label class="form-label">Prior Period</label>
+                <div class="form-control-plaintext small" id="priorPeriodDisplay">Oct 2025</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Metrics - Horizontal Layout Above Chart -->
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-4">
+                        <h6 class="text-muted mb-1">Start Net Rate</h6>
+                        <h4 class="mb-0" id="startRate">$0.00</h4>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="text-muted mb-1">End Net Rate</h6>
+                        <h4 class="mb-0" id="endRate">$0.00</h4>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="text-muted mb-1">Total Change</h6>
+                        <h4 class="mb-0" id="totalChange">$0.00</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Waterfall Chart -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Net Rate Waterfall Analysis</h5>
+                <small class="text-muted">Click any driver bar to drill down for detailed analysis</small>
+            </div>
+            <div class="card-body">
+                <canvas id="waterfallChart" width="1200" height="400" style="width: 100%; border: 1px solid #ddd;"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let waterfallChart = null;
+
+// Load regions on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadRegions();
+    updateWaterfall();
+});
+
+function loadRegions() {
+    fetch('/api/regions')
+        .then(response => response.json())
+        .then(regions => {
+            const select = document.getElementById('regionFilter');
+            regions.forEach(region => {
+                const option = document.createElement('option');
+                option.value = region.region_id;
+                option.textContent = region.region_name;
+                select.appendChild(option);
+            });
+        });
+}
+
+function updateWaterfall() {
+    const analysisView = document.getElementById('analysisView').value;
+    const currentMonth = parseInt(document.getElementById('currentMonth').value);
+    const currentYear = parseInt(document.getElementById('currentYear').value);
+    const regionId = document.getElementById('regionFilter').value;
+    
+    // Calculate periods based on view type
+    const periods = calculatePeriods(analysisView, currentMonth, currentYear);
+    updatePeriodDisplays(periods);
+    
+    const params = new URLSearchParams({
+        view_type: analysisView,
+        current_month: currentMonth,
+        current_year: currentYear
+    });
+    
+    if (regionId) {
+        params.append('region_id', regionId);
+    }
+    
+    fetch(`/api/waterfall?${params}`)
+        .then(response => response.json())
+        .then(data => {
+            updateSummaryMetrics(data);
+            updateWaterfallChart(data);
+        });
+}
+
+function calculatePeriods(viewType, currentMonth, currentYear) {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    switch(viewType) {
+        case 'MTD':
+            // Use actual data periods that exist
+            if (currentMonth >= 12) {
+                return {
+                    current: 'Jan 2025',
+                    prior: 'Dec 2024'
+                };
+            } else if (currentMonth === 1) {
+                return {
+                    current: 'Jan 2025',
+                    prior: 'Dec 2024'
+                };
+            } else {
+                const priorMonth = currentMonth - 1;
+                return {
+                    current: `${monthNames[currentMonth-1]} 2025`,
+                    prior: `${monthNames[priorMonth-1]} 2025`
+                };
+            }
+        case 'QTD':
+            return {
+                current: 'Q1 2025 QTD',
+                prior: 'Dec 2024'
+            };
+        case 'YTD':
+            return {
+                current: '2025 YTD',
+                prior: 'Dec 2024'
+            };
+        default:
+            return {
+                current: 'Jan 2025',
+                prior: 'Dec 2024'
+            };
+    }
+}
+
+function updatePeriodDisplays(periods) {
+    document.getElementById('currentPeriodDisplay').textContent = periods.current;
+    document.getElementById('priorPeriodDisplay').textContent = periods.prior;
+}
+
+function updateSummaryMetrics(data) {
+    document.getElementById('startRate').textContent = '$' + data.start_net_rate.toFixed(2);
+    document.getElementById('endRate').textContent = '$' + data.end_net_rate.toFixed(2);
+    
+    const totalChangeElement = document.getElementById('totalChange');
+    
+    // Format total change with parentheses for negatives
+    if (data.total_change < 0) {
+        totalChangeElement.textContent = '($' + Math.abs(data.total_change).toFixed(2) + ')';
+        totalChangeElement.className = 'text-danger';
+    } else if (data.total_change > 0) {
+        totalChangeElement.textContent = '+$' + data.total_change.toFixed(2);
+        totalChangeElement.className = 'text-success';
+    } else {
+        totalChangeElement.textContent = '$' + data.total_change.toFixed(2);
+        totalChangeElement.className = '';
+    }
+}
+
+function updateWaterfallChart(data) {
+    const canvas = document.getElementById('waterfallChart');
+    const ctx = canvas.getContext('2d');
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    const drivers = data.drivers;
+    
+    // Create driver objects with names and values for sorting
+    const driverNames = {
+        'payer_mix': 'Payer Mix',
+        'allowed_rates': 'Allowed Rates',
+        'units_per_visit': 'Units/Visit',
+        'cpt_mix': 'CPT Mix',
+        'copay_leakage': 'Copay Collection',
+        'writeoffs_denials': 'Write-offs/Denials',
+        'operational_leakage': 'Operational',
+        'documentation_issues': 'Documentation'
+    };
+    
+    // Convert drivers to array and sort: positives first (high to low), then negatives (most negative to least)
+    const driverArray = Object.entries(drivers).map(([key, value]) => ({
+        key: key,
+        name: driverNames[key],
+        value: value
+    }));
+    
+    // Sort drivers: positives descending, then negatives ascending (most negative first)
+    driverArray.sort((a, b) => {
+        if (a.value >= 0 && b.value >= 0) {
+            return b.value - a.value; // Positive: highest first
+        } else if (a.value < 0 && b.value < 0) {
+            return a.value - b.value; // Negative: most negative first
+        } else {
+            return b.value - a.value; // Mixed: positives before negatives
+        }
+    });
+    
+    // Build sorted labels and changes arrays
+    const labels = ['Start Rate', ...driverArray.map(d => d.name), 'End Rate'];
+    const changes = [0, ...driverArray.map(d => d.value), 0];
+    const driverKeys = ['', ...driverArray.map(d => d.key), '']; // For click handling
+    
+    // Chart dimensions
+    const chartWidth = canvas.width - 120; // Leave space for Y-axis labels
+    const chartHeight = canvas.height - 100; // Leave space for X-axis labels
+    const chartLeft = 80;
+    const chartTop = 40;
+    const chartBottom = chartTop + chartHeight;
+    
+    const barWidth = chartWidth / labels.length * 0.8; // 80% of available space for thick bars
+    const barSpacing = chartWidth / labels.length * 0.2; // 20% for spacing
+    
+    // Calculate value range
+    const minValue = Math.min(data.start_net_rate, data.end_net_rate) - 0.5;
+    const maxValue = Math.max(data.start_net_rate, data.end_net_rate) + 0.5;
+    const valueRange = maxValue - minValue;
+    
+    // Helper function to convert value to Y coordinate
+    function valueToY(value) {
+        return chartBottom - ((value - minValue) / valueRange) * chartHeight;
+    }
+    
+    // Helper function to convert Y coordinate to value
+    function yToValue(y) {
+        return minValue + ((chartBottom - y) / chartHeight) * valueRange;
+    }
+    
+    // Draw grid lines and Y-axis labels
+    ctx.strokeStyle = '#e9ecef';
+    ctx.lineWidth = 1;
+    ctx.font = '12px Arial';
+    ctx.fillStyle = '#666';
+    
+    for (let i = 0; i <= 10; i++) {
+        const value = minValue + (valueRange * i / 10);
+        const y = valueToY(value);
+        
+        // Grid line
+        ctx.beginPath();
+        ctx.moveTo(chartLeft, y);
+        ctx.lineTo(chartLeft + chartWidth, y);
+        ctx.stroke();
+        
+        // Y-axis label
+        ctx.fillText('$' + value.toFixed(2), 10, y + 4);
+    }
+    
+    // Draw waterfall bars
+    let cumulative = data.start_net_rate;
+    const barCenters = []; // Store for click detection
+    
+    for (let i = 0; i < labels.length; i++) {
+        const x = chartLeft + (i * (barWidth + barSpacing)) + (barSpacing / 2);
+        const barCenter = x + barWidth / 2;
+        barCenters.push({x: x, width: barWidth, label: labels[i], index: i});
+        
+        const change = changes[i];
+        
+        if (i === 0) {
+            // Start Rate - blue bar from bottom
+            const barBottom = valueToY(minValue);
+            const barTop = valueToY(data.start_net_rate);
+            
+            ctx.fillStyle = '#007bff';
+            ctx.fillRect(x, barTop, barWidth, barBottom - barTop);
+            
+            // White text on blue bar
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('$' + data.start_net_rate.toFixed(2), barCenter, barTop + 20);
+            
+        } else if (i === labels.length - 1) {
+            // End Rate - blue bar from bottom
+            const barBottom = valueToY(minValue);
+            const barTop = valueToY(data.end_net_rate);
+            
+            ctx.fillStyle = '#007bff';
+            ctx.fillRect(x, barTop, barWidth, barBottom - barTop);
+            
+            // White text on blue bar
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('$' + data.end_net_rate.toFixed(2), barCenter, barTop + 20);
+            
+        } else {
+            // Driver change bar
+            if (Math.abs(change) > 0.001) {
+                const startY = valueToY(cumulative);
+                const endY = valueToY(cumulative + change);
+                const barTop = Math.min(startY, endY);
+                const barHeight = Math.abs(endY - startY);
+                
+                // Color based on positive/negative
+                ctx.fillStyle = change >= 0 ? '#28a745' : '#dc3545';
+                ctx.fillRect(x, barTop, barWidth, barHeight);
+                
+                // Green/red text positioned above bar for positive, below for negative
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                
+                if (change >= 0) {
+                    // Positive: green text above the bar
+                    ctx.fillStyle = '#28a745';
+                    const changeText = '+$' + change.toFixed(2);
+                    ctx.fillText(changeText, barCenter, barTop - 8);
+                } else {
+                    // Negative: red text below the bar, with parentheses
+                    ctx.fillStyle = '#dc3545';
+                    const changeText = '($' + Math.abs(change).toFixed(2) + ')';
+                    ctx.fillText(changeText, barCenter, barTop + barHeight + 16);
+                }
+            }
+            
+            cumulative += change;
+        }
+        
+        // X-axis labels
+        ctx.fillStyle = '#333';
+        ctx.font = '11px Arial';
+        ctx.textAlign = 'center';
+        ctx.save();
+        ctx.translate(barCenter, chartBottom + 15);
+        ctx.rotate(-Math.PI / 6); // 30 degree angle
+        ctx.fillText(labels[i], 0, 0);
+        ctx.restore();
+    }
+    
+    // Add click handler
+    canvas.onclick = function(event) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+        
+        // Find which bar was clicked
+        for (let i = 0; i < barCenters.length; i++) {
+            const bar = barCenters[i];
+            if (x >= bar.x && x <= bar.x + bar.width) {
+                if (i > 0 && i < labels.length - 1) {
+                    const driverKey = driverKeys[i];
+                    if (driverKey) {
+                        window.location.href = `/drill-down/${driverKey}`;
+                    }
+                }
+                break;
+            }
+        }
+    };
+    
+    // Add hover cursor
+    canvas.onmousemove = function(event) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+        
+        let isOverBar = false;
+        for (let i = 1; i < barCenters.length - 1; i++) { // Skip start and end rates
+            const bar = barCenters[i];
+            if (x >= bar.x && x <= bar.x + bar.width) {
+                isOverBar = true;
+                break;
+            }
+        }
+        
+        canvas.style.cursor = isOverBar ? 'pointer' : 'default';
+    };
+}
+
+</script>
+{% endblock %}

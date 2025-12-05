@@ -1,0 +1,589 @@
+{% extends "base.html" %}
+
+{% block title %}Drill Down - {{ driver.title() }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb" id="drillBreadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Dashboard</a></li>
+                <li class="breadcrumb-item active">{{ driver.title().replace('_', ' ') }} Analysis</li>
+            </ol>
+        </nav>
+        
+        <h1 id="drillTitle">{{ driver.title().replace('_', ' ') }} by Region</h1>
+        <p class="lead">Click any row to drill down to the next level</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <label for="analysisView" class="form-label">View</label>
+        <select class="form-control" id="analysisView" onchange="updateDrillDown()">
+            <option value="MTD">MTD</option>
+            <option value="QTD">QTD</option>
+            <option value="YTD">YTD</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label for="currentMonth" class="form-label">Current Month</label>
+        <select class="form-control" id="currentMonth" onchange="updateDrillDown()">
+            <option value="1">January</option>
+            <option value="2">February</option>
+            <option value="3">March</option>
+            <option value="4">April</option>
+            <option value="5">May</option>
+            <option value="6">June</option>
+            <option value="7">July</option>
+            <option value="8">August</option>
+            <option value="9">September</option>
+            <option value="10">October</option>
+            <option value="11" selected>November</option>
+            <option value="12">December</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label for="currentYear" class="form-label">Year</label>
+        <select class="form-control" id="currentYear" onchange="updateDrillDown()">
+            <option value="2024">2024</option>
+            <option value="2025" selected>2025</option>
+        </select>
+    </div>
+    <div class="col-md-3 d-flex align-items-end">
+        <button class="btn btn-outline-secondary btn-sm" onclick="drillUp()">
+            ← Back Up
+        </button>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0" id="tableTitle">Performance by Region</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover" id="drillDownTable">
+                        <thead id="tableHeaders">
+                            <!-- Headers will be populated dynamically based on driver -->
+                        </thead>
+                        <tbody>
+                            <!-- Data will be populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Recommended Actions</h5>
+            </div>
+            <div class="card-body">
+                <div id="actionRecommendations">
+                    <!-- Actions will be populated based on driver -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const driver = '{{ driver }}';
+
+// Navigation state
+let currentLevel = 'region';
+let navigationStack = [];
+let currentParentId = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Show loading state immediately
+    showLoadingState();
+    updateDrillDown();
+    loadActionRecommendations();
+});
+
+function showLoadingState() {
+    const tableTitle = document.getElementById('tableTitle');
+    const tableHeaders = document.getElementById('tableHeaders');
+    const tableBody = document.querySelector('#drillDownTable tbody');
+    
+    tableTitle.textContent = 'Loading...';
+    tableHeaders.innerHTML = '<tr><th>Loading data...</th></tr>';
+    tableBody.innerHTML = '<tr><td><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
+}
+
+function updateDrillDown() {
+    const analysisView = document.getElementById('analysisView').value;
+    const currentMonth = parseInt(document.getElementById('currentMonth').value);
+    const currentYear = parseInt(document.getElementById('currentYear').value);
+    
+    const params = new URLSearchParams({
+        view_type: analysisView,
+        current_month: currentMonth,
+        current_year: currentYear,
+        level: currentLevel
+    });
+    
+    if (currentParentId) {
+        params.append('parent_id', currentParentId);
+    }
+    
+    const apiUrl = `/api/drill-down/${driver}?${params}`;
+    console.log('Fetching drill-down data from:', apiUrl);
+    
+    fetch(apiUrl)
+        .then(response => {
+            console.log('Response status:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Drill-down data received:', data);
+            updateTableHeaders();
+            updateDrillDownTable(data);
+            updateBreadcrumb();
+        })
+        .catch(error => {
+            console.error('Error fetching drill-down data:', error);
+            const tableTitle = document.getElementById('tableTitle');
+            const tableBody = document.querySelector('#drillDownTable tbody');
+            tableTitle.textContent = 'Error loading data';
+            tableBody.innerHTML = '<tr><td colspan="5">Error: ' + error.message + '</td></tr>';
+        });
+}
+
+function updateTableHeaders() {
+    const thead = document.getElementById('tableHeaders');
+    const levelName = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
+    
+    // Get driver-specific columns
+    const columns = getDriverColumns(driver, levelName);
+    
+    thead.innerHTML = `
+        <tr>
+            ${columns.map(col => `<th>${col}</th>`).join('')}
+            <th>Track</th>
+        </tr>
+    `;
+    
+    document.getElementById('tableTitle').textContent = `${driver.replace('_', ' ').toUpperCase()} by ${levelName}`;
+}
+
+function getDriverColumns(driverKey, levelName) {
+    const driverColumns = {
+        'units_per_visit': [
+            levelName, 'Prev Units/Visit', 'Cur Units/Visit', 'Change', '$ Impact'
+        ],
+        'copay_leakage': [
+            levelName, 'Expected Copay', 'Actual Copay', 'Capture %', '$ Impact'  
+        ],
+        'copay_collection': [
+            levelName, 'Expected Copay', 'Actual Copay', 'Capture %', '$ Impact'
+        ],
+        'payer_mix': [
+            levelName, 'Medicare %', 'Commercial %', 'Medicaid %', '$ Impact'
+        ],
+        'writeoffs_denials': [
+            levelName, 'Write-offs', 'Denial Rate', 'Total Loss', '$ Impact'
+        ],
+        'allowed_rates': [
+            levelName, 'Prev Avg Rate', 'Cur Avg Rate', 'Change', '$ Impact'
+        ],
+        'cpt_mix': [
+            levelName, 'Eval %', 'High-Value %', 'Units/Visit', '$ Impact'
+        ],
+        'operational_leakage': [
+            levelName, 'No-Show Rate', 'Cancel Rate', 'Efficiency', '$ Impact'
+        ],
+        'documentation_issues': [
+            levelName, 'Unbilled %', 'Avg Lag Days', 'Missing Docs', '$ Impact'
+        ]
+    };
+    
+    return driverColumns[driverKey] || [levelName, 'Current Value', 'Prior Value', 'Change', '$ Impact'];
+}
+
+function updateDrillDownTable(data) {
+    const tbody = document.querySelector('#drillDownTable tbody');
+    tbody.innerHTML = '';
+    
+    data.forEach((row, index) => {
+        const tr = document.createElement('tr');
+        tr.style.cursor = currentLevel !== 'therapist' ? 'pointer' : 'default';
+        
+        // Generate row data based on driver
+        const rowData = generateRowData(driver, row);
+        
+        // Create table cells with special formatting for currency values
+        const cells = rowData.map((cell, index) => {
+            // Check if this is the $ Impact column (usually the last data column)
+            const isImpactColumn = index === rowData.length - 1 && cell.includes('$');
+            
+            if (isImpactColumn) {
+                let cssClass = 'neutral-currency';
+                if (cell.includes('(') && cell.includes(')')) {
+                    cssClass = 'negative-currency';
+                } else if (cell.includes('$') && !cell.includes('(')) {
+                    cssClass = 'positive-currency';
+                }
+                return `<td><span class="${cssClass}">${cell}</span></td>`;
+            }
+            return `<td>${cell}</td>`;
+        }).join('');
+        
+        tr.innerHTML = `
+            ${cells}
+            <td>
+                <button class="btn btn-sm btn-outline-primary track-btn" 
+                        data-entity-id="${row.id}" 
+                        data-entity-name="${row.name}" 
+                        onclick="trackItem(event, '${row.name}', '${driver}', ${row.id})">
+                    Track
+                </button>
+            </td>
+        `;
+        
+        // Add click handler for drill-down (except for therapist level)
+        if (currentLevel !== 'therapist') {
+            tr.onclick = function(event) {
+                // Don't drill down if clicking the track button
+                if (event.target.classList.contains('track-btn') || event.target.closest('.track-btn')) {
+                    return;
+                }
+                drillDown(row.id, row.name);
+            };
+            tr.onmouseover = function() {
+                this.style.backgroundColor = '#f8f9fa';
+            };
+            tr.onmouseout = function() {
+                this.style.backgroundColor = '';
+            };
+        }
+        
+        tbody.appendChild(tr);
+    });
+}
+
+function generateRowData(driverKey, row) {
+    // Use actual calculated data from the API instead of random data
+    const name = row.name;
+    
+    // Helper function to format negative numbers with parentheses and thousands separators
+    function formatCurrency(value) {
+        const absValue = Math.abs(value).toFixed(0);
+        const formattedValue = parseInt(absValue).toLocaleString();
+        
+        if (value < 0) {
+            return `($${formattedValue})`;
+        }
+        return `$${formattedValue}`;
+    }
+    
+    function formatDecimal(value, places = 1) {
+        if (value < 0) {
+            return `(${Math.abs(value).toFixed(places)})`;
+        }
+        return value.toFixed(places);
+    }
+    
+    // Calculate actual metrics using real data
+    const currentUnitsPerVisit = row.units_per_visit || 0;
+    const priorUnitsPerVisit = row.prior_units_per_visit || 0;
+    const currentVisits = row.visits || 0;
+    
+    switch(driverKey) {
+        case 'units_per_visit':
+            const unitsChange = currentUnitsPerVisit - priorUnitsPerVisit;
+            const unitsImpact = unitsChange * 25 * currentVisits; // $25 per unit change * visits
+            return [
+                name, 
+                priorUnitsPerVisit.toFixed(1), 
+                currentUnitsPerVisit.toFixed(1), 
+                formatDecimal(unitsChange, 1), 
+                formatCurrency(unitsImpact)
+            ];
+            
+        case 'copay_leakage':
+        case 'copay_collection':
+            const currentExpected = (row.total_copay_expected || 0) / currentVisits;
+            const currentCollected = (row.total_copay_collected || 0) / currentVisits;
+            const priorExpected = (row.prior_copay_expected || 0) / (row.prior_visits || 1);
+            const priorCollected = (row.prior_copay_collected || 0) / (row.prior_visits || 1);
+            
+            const currentCapture = currentExpected > 0 ? (currentCollected / currentExpected) * 100 : 0;
+            const priorCapture = priorExpected > 0 ? (priorCollected / priorExpected) * 100 : 0;
+            
+            const copayLeakageChange = (currentExpected - currentCollected) - (priorExpected - priorCollected);
+            const copayImpact = copayLeakageChange * currentVisits * -1; // Negative because leakage is bad
+            
+            return [
+                name, 
+                `$${currentExpected.toFixed(2)}`, 
+                `$${currentCollected.toFixed(2)}`, 
+                `${currentCapture.toFixed(1)}%`, 
+                formatCurrency(copayImpact)
+            ];
+            
+        case 'payer_mix':
+            // Use visit patterns to simulate payer mix (simplified for prototype)
+            const visitId = row.id || 1;
+            const medicare = (15 + (visitId * 7) % 25).toFixed(1);
+            const commercial = (40 + (visitId * 11) % 30).toFixed(1);
+            const medicaid = (10 + (visitId * 3) % 15).toFixed(1);
+            
+            // Calculate impact based on net rate difference
+            const netRateChange = (row.avg_net_rate || 0) - (row.prior_avg_net_rate || 0);
+            const mixImpact = netRateChange * currentVisits * 0.3; // 30% attributed to payer mix
+            
+            return [
+                name, 
+                `${medicare}%`, 
+                `${commercial}%`, 
+                `${medicaid}%`, 
+                formatCurrency(mixImpact)
+            ];
+            
+        case 'writeoffs_denials':
+            const currentWriteoffs = (row.total_writeoffs || 0) / currentVisits;
+            const priorWriteoffs = (row.prior_writeoffs || 0) / (row.prior_visits || 1);
+            const writeoffChange = currentWriteoffs - priorWriteoffs;
+            
+            const denialRate = Math.min(15, Math.abs(writeoffChange) * 100).toFixed(1); // Simulated
+            const writeoffImpact = writeoffChange * currentVisits * -1; // Negative because writeoffs reduce revenue
+            
+            return [
+                name, 
+                `$${currentWriteoffs.toFixed(2)}`, 
+                `${denialRate}%`, 
+                `$${Math.abs(writeoffChange * currentVisits).toFixed(0)}`, 
+                formatCurrency(writeoffImpact)
+            ];
+            
+        default:
+            const currentRate = row.avg_net_rate || 0;
+            const priorRate = row.prior_avg_net_rate || 0;
+            const rateChange = currentRate - priorRate;
+            const rateImpact = rateChange * currentVisits;
+            
+            return [
+                name, 
+                priorRate.toFixed(2), 
+                currentRate.toFixed(2), 
+                formatDecimal(rateChange, 2), 
+                formatCurrency(rateImpact)
+            ];
+    }
+}
+
+function drillDown(id, name) {
+    // Save current state to navigation stack
+    navigationStack.push({
+        level: currentLevel,
+        parentId: currentParentId,
+        title: document.getElementById('drillTitle').textContent
+    });
+    
+    // Update navigation state
+    currentParentId = id;
+    
+    // Determine next level
+    const nextLevel = {
+        'region': 'market',
+        'market': 'clinic', 
+        'clinic': 'therapist'
+    };
+    
+    currentLevel = nextLevel[currentLevel] || 'therapist';
+    
+    // Update UI
+    const levelNames = {
+        'market': 'Markets',
+        'clinic': 'Clinics',
+        'therapist': 'Therapists'
+    };
+    
+    document.getElementById('drillTitle').textContent = 
+        `${driver.replace('_', ' ').toUpperCase()} by ${levelNames[currentLevel]} in ${name}`;
+    
+    updateDrillDown();
+}
+
+function drillUp() {
+    if (navigationStack.length > 0) {
+        const previousState = navigationStack.pop();
+        currentLevel = previousState.level;
+        currentParentId = previousState.parentId;
+        document.getElementById('drillTitle').textContent = previousState.title;
+        updateDrillDown();
+    }
+}
+
+function updateBreadcrumb() {
+    const breadcrumb = document.getElementById('drillBreadcrumb');
+    let breadcrumbHTML = `
+        <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="/drill-down/${driver}">${driver.replace('_', ' ').toUpperCase()}</a></li>
+    `;
+    
+    // Add navigation breadcrumbs based on stack
+    navigationStack.forEach((state, index) => {
+        breadcrumbHTML += `<li class="breadcrumb-item"><a href="#" onclick="drillToStackLevel(${index})">${state.level.toUpperCase()}</a></li>`;
+    });
+    
+    breadcrumbHTML += `<li class="breadcrumb-item active">${currentLevel.toUpperCase()}</li>`;
+    breadcrumb.innerHTML = breadcrumbHTML;
+}
+
+function drillToStackLevel(stackIndex) {
+    // Navigate back to a specific level in the stack
+    const targetState = navigationStack[stackIndex];
+    
+    // Remove everything after this level from the stack
+    navigationStack = navigationStack.slice(0, stackIndex + 1);
+    
+    // Restore the state
+    const restoredState = navigationStack.pop();
+    currentLevel = restoredState.level;
+    currentParentId = restoredState.parentId;
+    document.getElementById('drillTitle').textContent = restoredState.title;
+    
+    updateDrillDown();
+}
+
+function trackItem(event, itemName, driverName, entityId) {
+    // Prevent the event from bubbling up to the row click handler
+    event.stopPropagation();
+    
+    const button = event.target;
+    const entityType = currentLevel; // region, market, clinic, therapist
+    
+    // Disable button and show loading state
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Adding...';
+    
+    const trackingData = {
+        entity_name: itemName,
+        entity_type: entityType,
+        entity_id: entityId,
+        driver: driverName,
+        baseline_value: 0 // We can enhance this later with actual baseline calculation
+    };
+    
+    fetch('/api/tracking', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(trackingData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            // Reset button on error
+            button.disabled = false;
+            button.innerHTML = 'Track';
+            button.classList.remove('btn-outline-primary');
+            button.classList.add('btn-outline-danger');
+            setTimeout(() => {
+                button.classList.remove('btn-outline-danger');
+                button.classList.add('btn-outline-primary');
+            }, 3000);
+        } else {
+            // Success state - change button to indicate it's tracked
+            button.disabled = false;
+            button.innerHTML = '✓ Tracked';
+            button.classList.remove('btn-outline-primary');
+            button.classList.add('btn-success');
+            button.onclick = null; // Remove click handler
+            
+            // Optional: Add a small success animation
+            button.style.transform = 'scale(1.1)';
+            setTimeout(() => {
+                button.style.transform = 'scale(1)';
+            }, 200);
+        }
+    })
+    .catch(error => {
+        console.error('Error tracking item:', error);
+        // Reset button on error
+        button.disabled = false;
+        button.innerHTML = 'Track';
+        button.classList.remove('btn-outline-primary');
+        button.classList.add('btn-outline-danger');
+        setTimeout(() => {
+            button.classList.remove('btn-outline-danger');
+            button.classList.add('btn-outline-primary');
+        }, 3000);
+    });
+}
+
+function loadActionRecommendations() {
+    const recommendations = getRecommendationsForDriver(driver);
+    const container = document.getElementById('actionRecommendations');
+    
+    container.innerHTML = `
+        <h6>Recommended Actions for ${driver.replace('_', ' ').toUpperCase()}:</h6>
+        <ul class="list-unstyled">
+            ${recommendations.map(action => `<li>• ${action}</li>`).join('')}
+        </ul>
+    `;
+}
+
+function getRecommendationsForDriver(driverKey) {
+    const recommendations = {
+        'units_per_visit': [
+            'Review therapist evaluation and treatment templates',
+            'Provide CPT coding and documentation education',
+            'Compare case mix vs peers to rule out acuity differences',
+            'Review scheduling patterns for shortened visits'
+        ],
+        'copay_leakage': [
+            'Train front desk on copay collection scripts',
+            'Implement point-of-service payment expectations',
+            'Add front desk alerts for unpaid balances',
+            'Measure and post copay capture performance'
+        ],
+        'copay_collection': [
+            'Train front desk on copay collection scripts',
+            'Implement point-of-service payment expectations',
+            'Add front desk alerts for unpaid balances',
+            'Measure and post copay capture performance'
+        ],
+        'payer_mix': [
+            'Identify lost high-paying payer contracts',
+            'Work with managed care for payer renegotiations',
+            'Coordinate with marketing for desired payer mix',
+            'Analyze referral source payer composition'
+        ],
+        'writeoffs_denials': [
+            'Audit top denial reasons for targeted fixes',
+            'Create denial work queue and feedback loop',
+            'Introduce pre-authorization checks',
+            'Review documentation quality metrics'
+        ],
+        'operational_leakage': [
+            'Tighten no-show and late-cancel policies',
+            'Deploy automated reminders (SMS/email)',
+            'Analyze and adjust scheduling templates',
+            'Review therapist productivity metrics'
+        ]
+    };
+    
+    return recommendations[driverKey] || [
+        'Analyze underlying data patterns',
+        'Compare performance to benchmarks',
+        'Implement targeted improvement initiatives',
+        'Monitor progress over time'
+    ];
+}
+</script>
+{% endblock %}
