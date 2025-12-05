@@ -13,7 +13,7 @@
 <div class="row mb-4">
     <div class="col-md-2">
         <label for="analysisView" class="form-label">View</label>
-        <select class="form-control" id="analysisView" onchange="updateWaterfall()">
+        <select class="form-control" id="analysisView" onchange="saveFilterSettings(); updateWaterfall()">
             <option value="MTD">MTD</option>
             <option value="QTD">QTD</option>
             <option value="YTD">YTD</option>
@@ -21,7 +21,7 @@
     </div>
     <div class="col-md-2">
         <label for="currentMonth" class="form-label">Current Month</label>
-        <select class="form-control" id="currentMonth" onchange="updateWaterfall()">
+        <select class="form-control" id="currentMonth" onchange="saveFilterSettings(); updateWaterfall()">
             <option value="1">January</option>
             <option value="2">February</option>
             <option value="3">March</option>
@@ -38,14 +38,14 @@
     </div>
     <div class="col-md-2">
         <label for="currentYear" class="form-label">Year</label>
-        <select class="form-control" id="currentYear" onchange="updateWaterfall()">
+        <select class="form-control" id="currentYear" onchange="saveFilterSettings(); updateWaterfall()">
             <option value="2024">2024</option>
             <option value="2025" selected>2025</option>
         </select>
     </div>
     <div class="col-md-3">
         <label for="regionFilter" class="form-label">Region Filter</label>
-        <select class="form-control" id="regionFilter" onchange="updateWaterfall()">
+        <select class="form-control" id="regionFilter" onchange="saveFilterSettings(); updateWaterfall()">
             <option value="">All Regions</option>
         </select>
     </div>
@@ -110,6 +110,9 @@ let waterfallChart = null;
 
 // Load regions on page load
 document.addEventListener('DOMContentLoaded', function() {
+    // Load saved filter settings first
+    loadFilterSettings();
+    
     loadRegions();
     updateWaterfall();
 });
@@ -119,12 +122,22 @@ function loadRegions() {
         .then(response => response.json())
         .then(regions => {
             const select = document.getElementById('regionFilter');
+            const currentValue = select.value; // Preserve current value (from saved settings)
+            
             regions.forEach(region => {
                 const option = document.createElement('option');
                 option.value = region.region_id;
                 option.textContent = region.region_name;
                 select.appendChild(option);
             });
+            
+            // Restore the saved region filter value if it exists
+            if (currentValue) {
+                select.value = currentValue;
+            }
+        })
+        .catch(error => {
+            console.error('Error loading regions:', error);
         });
 }
 
@@ -162,33 +175,29 @@ function calculatePeriods(viewType, currentMonth, currentYear) {
     
     switch(viewType) {
         case 'MTD':
-            // Use actual data periods that exist
-            if (currentMonth >= 12) {
+            // Year-over-year comparison - same month in prior year
+            if (currentMonth === 1 && currentYear === 2025) {
                 return {
                     current: 'Jan 2025',
-                    prior: 'Dec 2024'
-                };
-            } else if (currentMonth === 1) {
-                return {
-                    current: 'Jan 2025',
-                    prior: 'Dec 2024'
+                    prior: 'Dec 2024'  // Closest available prior year data
                 };
             } else {
-                const priorMonth = currentMonth - 1;
                 return {
-                    current: `${monthNames[currentMonth-1]} 2025`,
-                    prior: `${monthNames[priorMonth-1]} 2025`
+                    current: `${monthNames[currentMonth-1]} ${currentYear}`,
+                    prior: `${monthNames[currentMonth-1]} ${currentYear - 1}`
                 };
             }
         case 'QTD':
+            const currentQuarter = Math.floor((currentMonth - 1) / 3) + 1;
+            const priorQuarter = currentQuarter;
             return {
-                current: 'Q1 2025 QTD',
-                prior: 'Dec 2024'
+                current: `Q${currentQuarter} ${currentYear} QTD`,
+                prior: `Q${priorQuarter} ${currentYear - 1} QTD`
             };
         case 'YTD':
             return {
-                current: '2025 YTD',
-                prior: 'Dec 2024'
+                current: `${currentYear} YTD`,
+                prior: `${currentYear - 1} YTD`
             };
         default:
             return {
@@ -382,15 +391,43 @@ function updateWaterfallChart(data) {
             cumulative += change;
         }
         
-        // X-axis labels
-        ctx.fillStyle = '#333';
+        // X-axis labels - straight text with wrapping
+        ctx.fillStyle = 'black';
         ctx.font = '11px Arial';
         ctx.textAlign = 'center';
-        ctx.save();
-        ctx.translate(barCenter, chartBottom + 15);
-        ctx.rotate(-Math.PI / 6); // 30 degree angle
-        ctx.fillText(labels[i], 0, 0);
-        ctx.restore();
+        
+        // Wrap text function to avoid breaking words
+        function wrapText(text, maxWidth) {
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = words[0];
+
+            for (let i = 1; i < words.length; i++) {
+                const word = words[i];
+                const width = ctx.measureText(currentLine + " " + word).width;
+                if (width < maxWidth) {
+                    currentLine += " " + word;
+                } else {
+                    lines.push(currentLine);
+                    currentLine = word;
+                }
+            }
+            lines.push(currentLine);
+            return lines;
+        }
+        
+        const maxLabelWidth = barWidth + 10; // Allow some overflow
+        const wrappedLines = wrapText(labels[i], maxLabelWidth);
+        const lineHeight = 12;
+        
+        // Center the text block vertically and horizontally
+        const totalTextHeight = wrappedLines.length * lineHeight;
+        const startY = chartBottom + 15;
+        
+        wrappedLines.forEach((line, lineIndex) => {
+            const y = startY + (lineIndex * lineHeight);
+            ctx.fillText(line, barCenter, y);
+        });
     }
     
     // Add click handler
@@ -429,6 +466,43 @@ function updateWaterfallChart(data) {
         
         canvas.style.cursor = isOverBar ? 'pointer' : 'default';
     };
+}
+
+// Filter persistence functions
+function saveFilterSettings() {
+    const filterSettings = {
+        analysisView: document.getElementById('analysisView').value,
+        currentMonth: document.getElementById('currentMonth').value,
+        currentYear: document.getElementById('currentYear').value,
+        regionFilter: document.getElementById('regionFilter').value
+    };
+    
+    sessionStorage.setItem('netRateFilters', JSON.stringify(filterSettings));
+}
+
+function loadFilterSettings() {
+    const saved = sessionStorage.getItem('netRateFilters');
+    if (saved) {
+        try {
+            const filterSettings = JSON.parse(saved);
+            
+            // Apply saved settings to form controls
+            if (filterSettings.analysisView) {
+                document.getElementById('analysisView').value = filterSettings.analysisView;
+            }
+            if (filterSettings.currentMonth) {
+                document.getElementById('currentMonth').value = filterSettings.currentMonth;
+            }
+            if (filterSettings.currentYear) {
+                document.getElementById('currentYear').value = filterSettings.currentYear;
+            }
+            if (filterSettings.regionFilter !== undefined) {
+                document.getElementById('regionFilter').value = filterSettings.regionFilter;
+            }
+        } catch (e) {
+            console.error('Error loading filter settings:', e);
+        }
+    }
 }
 
 </script>

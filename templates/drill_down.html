@@ -20,7 +20,7 @@
 <div class="row mb-4">
     <div class="col-md-3">
         <label for="analysisView" class="form-label">View</label>
-        <select class="form-control" id="analysisView" onchange="updateDrillDown()">
+        <select class="form-control" id="analysisView" onchange="saveFilterSettings(); updateDrillDown()">
             <option value="MTD">MTD</option>
             <option value="QTD">QTD</option>
             <option value="YTD">YTD</option>
@@ -28,7 +28,7 @@
     </div>
     <div class="col-md-3">
         <label for="currentMonth" class="form-label">Current Month</label>
-        <select class="form-control" id="currentMonth" onchange="updateDrillDown()">
+        <select class="form-control" id="currentMonth" onchange="saveFilterSettings(); updateDrillDown()">
             <option value="1">January</option>
             <option value="2">February</option>
             <option value="3">March</option>
@@ -45,14 +45,14 @@
     </div>
     <div class="col-md-3">
         <label for="currentYear" class="form-label">Year</label>
-        <select class="form-control" id="currentYear" onchange="updateDrillDown()">
+        <select class="form-control" id="currentYear" onchange="saveFilterSettings(); updateDrillDown()">
             <option value="2024">2024</option>
             <option value="2025" selected>2025</option>
         </select>
     </div>
     <div class="col-md-3 d-flex align-items-end">
-        <button class="btn btn-outline-secondary btn-sm" onclick="drillUp()">
-            ← Back Up
+        <button class="btn btn-outline-secondary btn-sm" id="backUpBtn" onclick="drillUp()">
+            <span id="backUpText">← Back to Dashboard</span>
         </button>
     </div>
 </div>
@@ -102,11 +102,20 @@ let currentLevel = 'region';
 let navigationStack = [];
 let currentParentId = null;
 
+// Table sorting state
+let currentTableData = [];
+let currentSortColumn = -1;
+let currentSortDirection = 'asc';
+
 document.addEventListener('DOMContentLoaded', function() {
+    // Load saved filter settings first
+    loadFilterSettings();
+    
     // Show loading state immediately
     showLoadingState();
     updateDrillDown();
     loadActionRecommendations();
+    updateBackButton();
 });
 
 function showLoadingState() {
@@ -170,12 +179,24 @@ function updateTableHeaders() {
     
     thead.innerHTML = `
         <tr>
-            ${columns.map(col => `<th>${col}</th>`).join('')}
+            ${columns.map((col, index) => `
+                <th class="sortable-header" data-column="${index}" style="cursor: pointer; user-select: none;">
+                    ${col} <span class="sort-indicator"></span>
+                </th>
+            `).join('')}
             <th>Track</th>
         </tr>
     `;
     
     document.getElementById('tableTitle').textContent = `${driver.replace('_', ' ').toUpperCase()} by ${levelName}`;
+    
+    // Add click listeners for sorting
+    thead.querySelectorAll('.sortable-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const columnIndex = parseInt(header.getAttribute('data-column'));
+            sortTableByColumn(columnIndex, header);
+        });
+    });
 }
 
 function getDriverColumns(driverKey, levelName) {
@@ -213,6 +234,56 @@ function getDriverColumns(driverKey, levelName) {
 }
 
 function updateDrillDownTable(data) {
+    // Store the data for sorting
+    currentTableData = data;
+    
+    // Check tracking status for all entities before rendering
+    checkTrackingStatusAndRender(data);
+}
+
+function checkTrackingStatusAndRender(data) {
+    // If no data, just render empty table
+    if (!data || data.length === 0) {
+        renderTable(data);
+        return;
+    }
+    
+    // Build list of entities to check tracking status for
+    const entities = data.map(row => ({
+        entity_type: currentLevel,
+        entity_id: row.id,
+        driver: driver
+    }));
+    
+    // Call API to check tracking status
+    fetch('/api/tracking/status', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ entities: entities })
+    })
+    .then(response => response.json())
+    .then(trackingStatus => {
+        // Add tracking status to data
+        const dataWithTracking = data.map(row => {
+            const key = `${currentLevel}_${row.id}_${driver}`;
+            return {
+                ...row,
+                isTracked: trackingStatus[key] || false
+            };
+        });
+        
+        renderTable(dataWithTracking);
+    })
+    .catch(error => {
+        console.error('Error checking tracking status:', error);
+        // Render without tracking status if there's an error
+        renderTable(data);
+    });
+}
+
+function renderTable(data) {
     const tbody = document.querySelector('#drillDownTable tbody');
     tbody.innerHTML = '';
     
@@ -240,14 +311,20 @@ function updateDrillDownTable(data) {
             return `<td>${cell}</td>`;
         }).join('');
         
+        // Determine track button state based on tracking status
+        const isTracked = row.isTracked || false;
+        const buttonClass = isTracked ? 'btn btn-sm btn-success track-btn' : 'btn btn-sm btn-outline-primary track-btn';
+        const buttonText = isTracked ? '✓ Tracked' : 'Track';
+        const buttonOnClick = isTracked ? '' : `onclick="trackItem(event, '${row.name}', '${driver}', ${row.id})"`;
+        
         tr.innerHTML = `
             ${cells}
             <td>
-                <button class="btn btn-sm btn-outline-primary track-btn" 
+                <button class="${buttonClass}" 
                         data-entity-id="${row.id}" 
                         data-entity-name="${row.name}" 
-                        onclick="trackItem(event, '${row.name}', '${driver}', ${row.id})">
-                    Track
+                        ${buttonOnClick}>
+                    ${buttonText}
                 </button>
             </td>
         `;
@@ -415,15 +492,40 @@ function drillDown(id, name) {
         `${driver.replace('_', ' ').toUpperCase()} by ${levelNames[currentLevel]} in ${name}`;
     
     updateDrillDown();
+    updateBackButton();
 }
 
 function drillUp() {
     if (navigationStack.length > 0) {
+        // Navigate back in the drill-down hierarchy
         const previousState = navigationStack.pop();
         currentLevel = previousState.level;
         currentParentId = previousState.parentId;
         document.getElementById('drillTitle').textContent = previousState.title;
         updateDrillDown();
+        updateBackButton();
+    } else {
+        // If no navigation history, go back to Dashboard
+        window.location.href = '/';
+    }
+}
+
+function updateBackButton() {
+    const backBtn = document.getElementById('backUpBtn');
+    const backText = document.getElementById('backUpText');
+    
+    if (navigationStack.length > 0) {
+        // Show what level we'll go back to
+        const previousState = navigationStack[navigationStack.length - 1];
+        const levelNames = {
+            'region': 'Regions',
+            'market': 'Markets', 
+            'clinic': 'Clinics'
+        };
+        backText.textContent = `← Back to ${levelNames[previousState.level] || 'Previous Level'}`;
+    } else {
+        // At top level, go back to dashboard
+        backText.textContent = '← Back to Dashboard';
     }
 }
 
@@ -457,6 +559,84 @@ function drillToStackLevel(stackIndex) {
     document.getElementById('drillTitle').textContent = restoredState.title;
     
     updateDrillDown();
+    updateBackButton();
+}
+
+function sortTableByColumn(columnIndex, headerElement) {
+    // Toggle sort direction if clicking the same column
+    if (currentSortColumn === columnIndex) {
+        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortDirection = 'asc';
+        currentSortColumn = columnIndex;
+    }
+    
+    // Update sort indicators
+    document.querySelectorAll('.sort-indicator').forEach(indicator => {
+        indicator.textContent = '';
+    });
+    
+    const indicator = headerElement.querySelector('.sort-indicator');
+    indicator.textContent = currentSortDirection === 'asc' ? ' ↑' : ' ↓';
+    
+    // Sort the data
+    const sortedData = [...currentTableData].sort((a, b) => {
+        const aRowData = generateRowData(driver, a);
+        const bRowData = generateRowData(driver, b);
+        
+        const aValue = aRowData[columnIndex];
+        const bValue = bRowData[columnIndex];
+        
+        // Parse values for sorting
+        const aParsed = parseValueForSorting(aValue);
+        const bParsed = parseValueForSorting(bValue);
+        
+        let comparison = 0;
+        if (typeof aParsed === 'number' && typeof bParsed === 'number') {
+            comparison = aParsed - bParsed;
+        } else {
+            comparison = String(aParsed).localeCompare(String(bParsed));
+        }
+        
+        return currentSortDirection === 'asc' ? comparison : -comparison;
+    });
+    
+    // Re-render the table with sorted data (with tracking status check)
+    checkTrackingStatusAndRender(sortedData);
+}
+
+function parseValueForSorting(value) {
+    // Remove $ symbols and parentheses, convert to numbers where possible
+    if (typeof value === 'string') {
+        // Handle currency values like "$1,234" or "($1,234)"
+        if (value.includes('$')) {
+            let numStr = value.replace(/[$,()]/g, '');
+            if (value.includes('(') && value.includes(')')) {
+                numStr = '-' + numStr;
+            }
+            const parsed = parseFloat(numStr);
+            return isNaN(parsed) ? value : parsed;
+        }
+        
+        // Handle percentage values like "85.2%"
+        if (value.includes('%')) {
+            const parsed = parseFloat(value.replace('%', ''));
+            return isNaN(parsed) ? value : parsed;
+        }
+        
+        // Handle regular numbers (including those with parentheses for negatives)
+        if (value.includes('(') && value.includes(')')) {
+            const numStr = '-' + value.replace(/[()]/g, '');
+            const parsed = parseFloat(numStr);
+            return isNaN(parsed) ? value : parsed;
+        }
+        
+        // Try to parse as number
+        const parsed = parseFloat(value);
+        return isNaN(parsed) ? value : parsed;
+    }
+    
+    return value;
 }
 
 function trackItem(event, itemName, driverName, entityId) {
@@ -539,51 +719,59 @@ function loadActionRecommendations() {
 }
 
 function getRecommendationsForDriver(driverKey) {
-    const recommendations = {
-        'units_per_visit': [
-            'Review therapist evaluation and treatment templates',
-            'Provide CPT coding and documentation education',
-            'Compare case mix vs peers to rule out acuity differences',
-            'Review scheduling patterns for shortened visits'
-        ],
-        'copay_leakage': [
-            'Train front desk on copay collection scripts',
-            'Implement point-of-service payment expectations',
-            'Add front desk alerts for unpaid balances',
-            'Measure and post copay capture performance'
-        ],
-        'copay_collection': [
-            'Train front desk on copay collection scripts',
-            'Implement point-of-service payment expectations',
-            'Add front desk alerts for unpaid balances',
-            'Measure and post copay capture performance'
-        ],
-        'payer_mix': [
-            'Identify lost high-paying payer contracts',
-            'Work with managed care for payer renegotiations',
-            'Coordinate with marketing for desired payer mix',
-            'Analyze referral source payer composition'
-        ],
-        'writeoffs_denials': [
-            'Audit top denial reasons for targeted fixes',
-            'Create denial work queue and feedback loop',
-            'Introduce pre-authorization checks',
-            'Review documentation quality metrics'
-        ],
-        'operational_leakage': [
-            'Tighten no-show and late-cancel policies',
-            'Deploy automated reminders (SMS/email)',
-            'Analyze and adjust scheduling templates',
-            'Review therapist productivity metrics'
-        ]
+    // Generic recommendations for all drivers
+    return [
+        'Recommended action 1',
+        'Recommended action 2', 
+        'Recommended action 3'
+    ];
+}
+
+// Filter persistence functions (shared with dashboard)
+function saveFilterSettings() {
+    const filterSettings = {
+        analysisView: document.getElementById('analysisView').value,
+        currentMonth: document.getElementById('currentMonth').value,
+        currentYear: document.getElementById('currentYear').value,
+        regionFilter: '' // Drill-down doesn't have region filter, but we preserve it
     };
     
-    return recommendations[driverKey] || [
-        'Analyze underlying data patterns',
-        'Compare performance to benchmarks',
-        'Implement targeted improvement initiatives',
-        'Monitor progress over time'
-    ];
+    // Merge with existing settings to preserve region filter from dashboard
+    const existing = sessionStorage.getItem('netRateFilters');
+    if (existing) {
+        try {
+            const existingSettings = JSON.parse(existing);
+            if (existingSettings.regionFilter !== undefined) {
+                filterSettings.regionFilter = existingSettings.regionFilter;
+            }
+        } catch (e) {
+            console.error('Error merging filter settings:', e);
+        }
+    }
+    
+    sessionStorage.setItem('netRateFilters', JSON.stringify(filterSettings));
+}
+
+function loadFilterSettings() {
+    const saved = sessionStorage.getItem('netRateFilters');
+    if (saved) {
+        try {
+            const filterSettings = JSON.parse(saved);
+            
+            // Apply saved settings to form controls (only the ones that exist on this page)
+            if (filterSettings.analysisView) {
+                document.getElementById('analysisView').value = filterSettings.analysisView;
+            }
+            if (filterSettings.currentMonth) {
+                document.getElementById('currentMonth').value = filterSettings.currentMonth;
+            }
+            if (filterSettings.currentYear) {
+                document.getElementById('currentYear').value = filterSettings.currentYear;
+            }
+        } catch (e) {
+            console.error('Error loading filter settings:', e);
+        }
+    }
 }
 </script>
 {% endblock %}

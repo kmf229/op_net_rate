@@ -1,8 +1,24 @@
 /* Net Rate Decomposition Tool - Custom CSS */
 
+/* Custom color theme */
+:root {
+    --primary-color: #347B78;
+    --primary-light: #4a9b97;
+    --primary-dark: #245954;
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background-color: #f8f9fa;
+}
+
+/* Custom navbar styling */
+.navbar.bg-primary {
+    background-color: var(--primary-color) !important;
+}
+
+.navbar-brand:hover {
+    color: rgba(255, 255, 255, 0.9) !important;
 }
 
 .navbar-brand {
@@ -53,7 +69,7 @@ body {
 }
 
 .waterfall-neutral {
-    background-color: #007bff !important;
+    background-color: var(--primary-color) !important;
 }
 
 .list-group-item {
@@ -125,6 +141,38 @@ body {
     transform: translateY(-2px);
 }
 
+/* Custom primary card styling */
+.card.bg-primary {
+    background-color: var(--primary-color) !important;
+}
+
+.bg-primary {
+    background-color: var(--primary-color) !important;
+}
+
+/* Link styling */
+a {
+    color: var(--primary-color);
+}
+
+a:hover {
+    color: var(--primary-dark);
+}
+
+.breadcrumb-item.active {
+    color: var(--primary-color);
+}
+
+.breadcrumb-item a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.breadcrumb-item a:hover {
+    color: var(--primary-dark);
+    text-decoration: underline;
+}
+
 /* Form controls */
 .form-control, .form-select {
     border-radius: 0.375rem;
@@ -132,8 +180,29 @@ body {
 }
 
 .form-control:focus, .form-select:focus {
-    border-color: #80bdff;
-    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    border-color: var(--primary-light);
+    box-shadow: 0 0 0 0.2rem rgba(52, 123, 120, 0.25);
+}
+
+/* Custom button styling */
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-dark);
+    border-color: var(--primary-dark);
+}
+
+.btn-outline-primary {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-outline-primary:hover {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
 }
 
 /* Tracking dashboard specific styles */
@@ -190,7 +259,7 @@ body {
 
 .action-list li:before {
     content: "•";
-    color: #007bff;
+    color: var(--primary-color);
     font-weight: bold;
     position: absolute;
     left: 0;
@@ -229,4 +298,20 @@ body {
 /* Success animation */
 .track-btn.btn-success {
     transform-origin: center;
+}
+
+/* Sortable table headers */
+.sortable-header {
+    position: relative;
+    transition: background-color 0.2s ease;
+}
+
+.sortable-header:hover {
+    background-color: #f8f9fa !important;
+}
+
+.sort-indicator {
+    font-size: 12px;
+    color: var(--primary-color);
+    font-weight: bold;
 }

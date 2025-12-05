@@ -181,24 +181,21 @@ function viewDetails(entityName) {
 }
 
 function removeTracking(entityName, trackingId) {
-    if (confirm(`Remove ${entityName} from tracking?`)) {
-        fetch(`/api/tracking/${trackingId}`, {
-            method: 'DELETE'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                alert(`Error: ${data.error}`);
-            } else {
-                alert(`Removed ${entityName} from tracking list.`);
-                loadTrackingData(); // Refresh the table
-            }
-        })
-        .catch(error => {
-            console.error('Error removing tracking:', error);
-            alert(`Error removing from tracking: ${error.message}`);
-        });
-    }
+    fetch(`/api/tracking/${trackingId}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            console.error('Error removing tracking:', data.error);
+        } else {
+            // Silently refresh the table - no alert notifications
+            loadTrackingData();
+        }
+    })
+    .catch(error => {
+        console.error('Error removing tracking:', error);
+    });
 }
 </script>
 {% endblock %}

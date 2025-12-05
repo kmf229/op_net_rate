@@ -178,32 +178,45 @@ def api_waterfall():
     current_year = int(request.args.get('current_year', 2025))
     region_id = request.args.get('region_id', None)
     
-    # For prototype: Use actual data periods that exist
-    # Since we have Dec 2024 - Nov 2025, compare recent periods with data
+    # Since our data spans Dec 2024 - Nov 2025, use practical periods for comparison
+    # For year-over-year comparison, we'll compare current 2025 periods to closest available 2024 data
     if view_type == 'MTD':
-        # Compare current month vs same month in prior year (but use available data)
-        if current_month >= 12:  # Dec and later
+        if current_month == 1 and current_year == 2025:
+            # Jan 2025 vs Dec 2024 (closest available)
             prior_period = ('2024-12-01', '2024-12-31')
             current_period = ('2025-01-01', '2025-01-31')
+        elif current_month >= 2 and current_year == 2025:
+            # Compare to prior month within 2025 for months after January
+            prior_month = current_month - 1
+            import calendar
+            prior_last_day = calendar.monthrange(2025, prior_month)[1]
+            current_last_day = calendar.monthrange(current_year, current_month)[1]
+            
+            prior_period = (f'2025-{prior_month:02d}-01', f'2025-{prior_month:02d}-{prior_last_day}')
+            current_period = (f'{current_year}-{current_month:02d}-01', f'{current_year}-{current_month:02d}-{current_last_day}')
         else:
-            # For months 1-11, compare with previous month
-            if current_month == 1:
-                prior_period = ('2024-12-01', '2024-12-31')
-                current_period = ('2025-01-01', '2025-01-31')
-            else:
-                prior_month = current_month - 1
-                prior_period = (f'2025-{prior_month:02d}-01', f'2025-{prior_month:02d}-28')
-                current_period = (f'2025-{current_month:02d}-01', f'2025-{current_month:02d}-25')
+            # Default case
+            import calendar
+            current_last_day = calendar.monthrange(current_year, current_month)[1]
+            prior_period = ('2024-12-01', '2024-12-31')
+            current_period = (f'{current_year}-{current_month:02d}-01', f'{current_year}-{current_month:02d}-{current_last_day}')
     
     elif view_type == 'QTD':
-        # Q1 2025 vs Q4 2024 (only Q4 2024 data available is Dec)
+        # Quarter comparison - Q1 2025 vs Q4 2024 (Dec only available)
+        quarter_start_month = ((current_month - 1) // 3) * 3 + 1
+        import calendar
+        current_last_day = calendar.monthrange(current_year, current_month)[1]
+        
         prior_period = ('2024-12-01', '2024-12-31')
-        current_period = ('2025-01-01', '2025-03-31')
+        current_period = (f'{current_year}-{quarter_start_month:02d}-01', f'{current_year}-{current_month:02d}-{current_last_day}')
         
     elif view_type == 'YTD':
-        # 2025 YTD vs available 2024 data (just December)
+        # YTD 2025 vs available 2024 data (December)
+        import calendar
+        current_last_day = calendar.monthrange(current_year, current_month)[1]
+        
         prior_period = ('2024-12-01', '2024-12-31')
-        current_period = ('2025-01-01', '2025-11-25')
+        current_period = (f'{current_year}-01-01', f'{current_year}-{current_month:02d}-{current_last_day}')
     
     # Get variance analysis
     variance_data = calculate_net_rate_variance(prior_period, current_period, region_id)
@@ -238,23 +251,42 @@ def api_drill_down(driver):
         
         # Calculate the same periods as waterfall for consistency
         if view_type == 'MTD':
-            if current_month >= 12:
+            if current_month == 1 and current_year == 2025:
+                # Jan 2025 vs Dec 2024 (closest available)
                 prior_period = ('2024-12-01', '2024-12-31')
                 current_period = ('2025-01-01', '2025-01-31')
+            elif current_month >= 2 and current_year == 2025:
+                # Compare to prior month within 2025 for months after January
+                prior_month = current_month - 1
+                import calendar
+                prior_last_day = calendar.monthrange(2025, prior_month)[1]
+                current_last_day = calendar.monthrange(current_year, current_month)[1]
+                
+                prior_period = (f'2025-{prior_month:02d}-01', f'2025-{prior_month:02d}-{prior_last_day}')
+                current_period = (f'{current_year}-{current_month:02d}-01', f'{current_year}-{current_month:02d}-{current_last_day}')
             else:
-                if current_month == 1:
-                    prior_period = ('2024-12-01', '2024-12-31')
-                    current_period = ('2025-01-01', '2025-01-31')
-                else:
-                    prior_month = current_month - 1
-                    prior_period = (f'2025-{prior_month:02d}-01', f'2025-{prior_month:02d}-28')
-                    current_period = (f'2025-{current_month:02d}-01', f'2025-{current_month:02d}-25')
+                # Default case
+                import calendar
+                current_last_day = calendar.monthrange(current_year, current_month)[1]
+                prior_period = ('2024-12-01', '2024-12-31')
+                current_period = (f'{current_year}-{current_month:02d}-01', f'{current_year}-{current_month:02d}-{current_last_day}')
+        
         elif view_type == 'QTD':
+            # Quarter comparison - Q1 2025 vs Q4 2024 (Dec only available)
+            quarter_start_month = ((current_month - 1) // 3) * 3 + 1
+            import calendar
+            current_last_day = calendar.monthrange(current_year, current_month)[1]
+            
             prior_period = ('2024-12-01', '2024-12-31')
-            current_period = ('2025-01-01', '2025-03-31')
+            current_period = (f'{current_year}-{quarter_start_month:02d}-01', f'{current_year}-{current_month:02d}-{current_last_day}')
+            
         elif view_type == 'YTD':
+            # YTD 2025 vs available 2024 data (December)
+            import calendar
+            current_last_day = calendar.monthrange(current_year, current_month)[1]
+            
             prior_period = ('2024-12-01', '2024-12-31')
-            current_period = ('2025-01-01', '2025-11-25')
+            current_period = (f'{current_year}-01-01', f'{current_year}-{current_month:02d}-{current_last_day}')
         
         print(f"DEBUG: periods - prior: {prior_period}, current: {current_period}")
         conn = get_db_connection()
@@ -567,6 +599,42 @@ def api_remove_tracking(tracking_id):
         
     except Exception as e:
         print(f"ERROR removing from tracking: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/tracking/status', methods=['POST'])
+def api_check_tracking_status():
+    """API endpoint to check tracking status for multiple entities and drivers."""
+    try:
+        data = request.get_json()
+        entities = data.get('entities', [])  # List of {entity_type, entity_id, driver}
+        
+        if not entities:
+            return jsonify({})
+        
+        conn = get_db_connection()
+        
+        # Build query to check multiple entities at once
+        tracked_items = {}
+        for entity in entities:
+            entity_type = entity.get('entity_type')
+            entity_id = entity.get('entity_id') 
+            driver = entity.get('driver')
+            
+            if entity_type and entity_id and driver:
+                result = conn.execute("""
+                    SELECT id FROM tracked_items 
+                    WHERE entity_type = ? AND entity_id = ? AND driver = ? AND is_active = 1
+                """, (entity_type, entity_id, driver)).fetchone()
+                
+                # Create a unique key for this entity/driver combination
+                key = f"{entity_type}_{entity_id}_{driver}"
+                tracked_items[key] = bool(result)
+        
+        conn.close()
+        return jsonify(tracked_items)
+        
+    except Exception as e:
+        print(f"ERROR checking tracking status: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
