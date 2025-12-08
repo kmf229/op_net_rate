@@ -2,6 +2,65 @@
 
 {% block title %}Tracking Dashboard{% endblock %}
 
+{% block extra_css %}
+<style>
+.ai-recommendation-box {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 1px solid #dee2e6;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.ai-recommendation-header {
+    background: #fff;
+    margin: -20px -20px 15px -20px;
+    padding: 15px 20px;
+    border-radius: 12px 12px 0 0;
+    border-bottom: 2px solid #e9ecef;
+    color: #495057;
+    font-weight: 600;
+}
+
+.ai-recommendation-content {
+    line-height: 1.6;
+    color: #495057;
+}
+
+.ai-recommendation-content p {
+    margin-bottom: 12px;
+}
+
+.ai-recommendation-content ul {
+    margin-bottom: 15px;
+    padding-left: 20px;
+}
+
+.ai-recommendation-content li {
+    margin-bottom: 8px;
+    position: relative;
+}
+
+.ai-recommendation-content li::marker {
+    color: #007bff;
+}
+
+.ai-recommendation-content strong {
+    color: #212529;
+    font-weight: 600;
+}
+
+.card {
+    transition: box-shadow 0.2s ease-in-out;
+}
+
+.card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row">
     <div class="col-12">
@@ -65,24 +124,8 @@
                 <h5 class="card-title mb-0">Tracked Items</h5>
             </div>
             <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-striped" id="trackingTable">
-                        <thead>
-                            <tr>
-                                <th>Entity</th>
-                                <th>Driver</th>
-                                <th>Current Value</th>
-                                <th>Baseline Value</th>
-                                <th>Change</th>
-                                <th>Status</th>
-                                <th>Date Added</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Sample data for prototype -->
-                        </tbody>
-                    </table>
+                <div id="trackingItems">
+                    <!-- Dynamic tracking items with recommendations will be added here -->
                 </div>
             </div>
         </div>
@@ -131,38 +174,72 @@ function loadTrackingData() {
 }
 
 function updateTrackingTable(data) {
-    const tbody = document.querySelector('#trackingTable tbody');
-    tbody.innerHTML = '';
+    const container = document.querySelector('#trackingItems');
+    container.innerHTML = '';
     
     data.forEach(item => {
-        const tr = document.createElement('tr');
         const statusColor = item.status === 'Improving' ? 'text-success' : 
                            item.status === 'Worsening' ? 'text-danger' : 'text-warning';
         const changeColor = item.change >= 0 ? 'text-success' : 'text-danger';
+        const recommendation = generateRecommendation(item);
         
-        tr.innerHTML = `
-            <td>${item.entity}</td>
-            <td>${item.driver}</td>
-            <td>${item.current_value.toFixed(1)}</td>
-            <td>${item.baseline_value.toFixed(1)}</td>
-            <td class="${changeColor}">
-                ${item.change >= 0 ? '+' : ''}${item.change.toFixed(1)}
-            </td>
-            <td class="${statusColor}">
-                <i class="fas ${item.status === 'Improving' ? 'fa-arrow-up' : 'fa-arrow-down'}"></i>
-                ${item.status}
-            </td>
-            <td>${item.date_added}</td>
-            <td>
-                <button class="btn btn-sm btn-outline-primary me-1" onclick="viewDetails('${item.entity}')">
-                    View
-                </button>
-                <button class="btn btn-sm btn-outline-danger" onclick="removeTracking('${item.entity}', ${item.id})">
-                    Remove
-                </button>
-            </td>
+        const itemCard = document.createElement('div');
+        itemCard.className = 'card mb-3';
+        itemCard.innerHTML = `
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-2">
+                        <strong>${item.entity}</strong>
+                        <br><small class="text-muted">${item.driver}</small>
+                    </div>
+                    <div class="col-md-1">
+                        <small class="text-muted">Current</small>
+                        <br><strong>${item.current_value.toFixed(1)}</strong>
+                    </div>
+                    <div class="col-md-1">
+                        <small class="text-muted">Baseline</small>
+                        <br><strong>${item.baseline_value.toFixed(1)}</strong>
+                    </div>
+                    <div class="col-md-1">
+                        <small class="text-muted">Change</small>
+                        <br><strong class="${changeColor}">
+                            ${item.change >= 0 ? '+' : ''}${item.change.toFixed(1)}
+                        </strong>
+                    </div>
+                    <div class="col-md-2">
+                        <span class="${statusColor}">
+                            <i class="fas ${item.status === 'Improving' ? 'fa-arrow-up' : 'fa-arrow-down'}"></i>
+                            ${item.status}
+                        </span>
+                    </div>
+                    <div class="col-md-2">
+                        <small class="text-muted">${item.date_added}</small>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-sm btn-outline-primary me-1" onclick="toggleRecommendation('rec-${item.id}')">
+                            <i class="fas fa-robot"></i> AI Insights
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="removeTracking('${item.entity}', ${item.id})">
+                            Remove
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- AI Recommendation Box -->
+                <div id="rec-${item.id}" class="mt-3" style="display: none;">
+                    <div class="ai-recommendation-box">
+                        <div class="ai-recommendation-header">
+                            <i class="fas fa-robot text-primary me-2"></i>
+                            <strong>AI Performance Analysis & Recommendations</strong>
+                        </div>
+                        <div class="ai-recommendation-content">
+                            ${recommendation}
+                        </div>
+                    </div>
+                </div>
+            </div>
         `;
-        tbody.appendChild(tr);
+        container.appendChild(itemCard);
     });
 }
 
@@ -174,10 +251,6 @@ function updateSummaryCards(data) {
     
     document.getElementById('improving').textContent = improving;
     document.getElementById('worsening').textContent = worsening;
-}
-
-function viewDetails(entityName) {
-    alert(`Viewing detailed analytics for: ${entityName}`);
 }
 
 function removeTracking(entityName, trackingId) {
@@ -196,6 +269,159 @@ function removeTracking(entityName, trackingId) {
     .catch(error => {
         console.error('Error removing tracking:', error);
     });
+}
+
+function toggleRecommendation(elementId) {
+    const element = document.getElementById(elementId);
+    if (element.style.display === 'none') {
+        element.style.display = 'block';
+    } else {
+        element.style.display = 'none';
+    }
+}
+
+function generateRecommendation(item) {
+    const entityType = getEntityType(item.entity);
+    const changeDescription = item.change >= 0 ? 'increased' : 'decreased';
+    const changeAmount = Math.abs(item.change).toFixed(1);
+    const driverName = item.driver.toLowerCase();
+    
+    let recommendations = getRecommendationsByDriver(driverName, item.change >= 0, entityType);
+    
+    return `
+        <p><strong>Performance Summary:</strong></p>
+        <p>Over the last 3 months, the <strong>${driverName}</strong> for <strong>${item.entity}</strong> (${entityType}) has ${changeDescription} by <strong>${changeAmount}</strong>.</p>
+        
+        <p><strong>Recommended Actions:</strong></p>
+        <ul>
+            ${recommendations.map((rec, index) => `<li>Recommendation ${index + 1}</li>`).join('')}
+        </ul>
+    `;
+}
+
+function getEntityType(entityName) {
+    // Simple heuristics to determine entity type
+    if (entityName.includes('Region')) return 'region';
+    if (entityName.includes('Market')) return 'market';
+    if (entityName.includes('Clinic') || entityName.includes('PT')) return 'clinic';
+    if (entityName.includes('Dr.') || entityName.includes('DPT') || entityName.includes('PTA')) return 'therapist';
+    return 'entity';
+}
+
+function getRecommendationsByDriver(driver, isImproving, entityType) {
+    const driverRecommendations = {
+        'payer mix shift': {
+            improving: [
+                'Continue current payer mix strategy and monitor contract renewal dates',
+                'Explore opportunities to increase contracts with high-performing payers',
+                'Document and share best practices with other locations'
+            ],
+            declining: [
+                'Review payer contract terms and negotiate better rates where possible',
+                'Implement patient education on insurance benefits and coverage',
+                'Consider adjusting service offerings to attract higher-reimbursing payers',
+                'Analyze referral patterns to identify opportunities for payer mix improvement'
+            ]
+        },
+        'allowed rate changes': {
+            improving: [
+                'Leverage improved rates in contract negotiations with other payers',
+                'Monitor contract compliance to maintain favorable rates',
+                'Share rate improvement strategies across the organization'
+            ],
+            declining: [
+                'Initiate contract renegotiation discussions with key payers',
+                'Review billing accuracy and ensure proper modifier usage',
+                'Consider value-based care arrangements to improve reimbursement',
+                'Benchmark rates against regional competitors and market standards'
+            ]
+        },
+        'units per visit': {
+            improving: [
+                'Standardize high-performing treatment protocols across other locations',
+                'Provide training to other therapists on effective treatment intensity',
+                'Monitor patient outcomes to ensure quality is maintained with increased units'
+            ],
+            declining: [
+                'Review treatment protocols and ensure appropriate intensity per diagnosis',
+                'Provide continuing education on evidence-based treatment approaches',
+                'Implement clinical decision support tools for treatment planning',
+                'Analyze scheduling patterns to optimize treatment session lengths'
+            ]
+        },
+        'cpt/service mix': {
+            improving: [
+                'Document successful service mix strategies for replication',
+                'Train staff on high-value service delivery and documentation',
+                'Monitor patient satisfaction with expanded service offerings'
+            ],
+            declining: [
+                'Review service offerings and eliminate low-value procedures',
+                'Train therapists on documentation for high-value CPT codes',
+                'Implement clinical pathways that incorporate evidence-based high-value services',
+                'Analyze patient case mix to optimize service delivery'
+            ]
+        },
+        'copay collection': {
+            improving: [
+                'Share collection best practices with other locations',
+                'Maintain current collection policies and staff training',
+                'Consider implementing automated payment reminders'
+            ],
+            declining: [
+                'Implement point-of-service collection policies',
+                'Train front desk staff on insurance verification and copay collection',
+                'Set up automated payment plans for patients with high copays',
+                'Review collection procedures and enforce consistent application'
+            ]
+        },
+        'write-offs/denials': {
+            improving: [
+                'Document denial prevention strategies for organizational knowledge sharing',
+                'Maintain current quality assurance processes',
+                'Monitor trends to prevent future increases'
+            ],
+            declining: [
+                'Implement comprehensive denial management program',
+                'Provide additional training on documentation requirements',
+                'Review billing processes for common denial patterns',
+                'Establish pre-authorization workflows for high-risk services'
+            ]
+        },
+        'operational leakage': {
+            improving: [
+                'Standardize scheduling and patient communication processes',
+                'Share operational efficiency best practices organization-wide',
+                'Continue monitoring no-show and cancellation patterns'
+            ],
+            declining: [
+                'Implement patient reminder systems (calls, texts, emails)',
+                'Review scheduling policies and optimize appointment booking',
+                'Analyze no-show patterns and implement targeted interventions',
+                'Improve patient engagement and education on treatment importance'
+            ]
+        },
+        'documentation issues': {
+            improving: [
+                'Maintain current documentation workflows and quality checks',
+                'Share documentation best practices with other locations',
+                'Continue staff education on billing compliance'
+            ],
+            declining: [
+                'Implement real-time documentation review processes',
+                'Provide targeted training on billing-compliant documentation',
+                'Review electronic health record workflows for efficiency',
+                'Establish daily billing lag monitoring and resolution procedures'
+            ]
+        }
+    };
+    
+    const category = isImproving ? 'improving' : 'declining';
+    return driverRecommendations[driver]?.[category] || [
+        'Monitor performance trends closely',
+        'Implement targeted interventions based on root cause analysis',
+        'Consult with operations team for specific guidance'
+    ];
 }
 </script>
 {% endblock %}
